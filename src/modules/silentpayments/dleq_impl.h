@@ -92,6 +92,8 @@ static void secp256k1_nonce_function_dleq(unsigned char *nonce32, const unsigned
         secp256k1_sha256_write(&sha, m, 32);
     }
     secp256k1_sha256_finalize(&sha, nonce32);
+    secp256k1_sha256_clear(&sha);
+    secp256k1_memclear_explicit(masked_key, sizeof(masked_key));
 }
 
 /* Generates a nonce as defined in BIP0374 v0.2.0 */
@@ -191,6 +193,7 @@ static int secp256k1_dleq_prove(const secp256k1_context *ctx, secp256k1_scalar *
     secp256k1_scalar_add(s, s, &k);
 
     secp256k1_scalar_clear(&k);
+    secp256k1_memclear_explicit(a32, sizeof(a32));
     return ret;
 }
 
