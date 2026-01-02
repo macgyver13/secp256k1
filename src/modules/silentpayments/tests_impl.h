@@ -990,15 +990,15 @@ static void test_dleq_bip_vectors(void) {
     }
 }
 
-void run_silentpayments_tests(void) {
-    test_recipient_sort();
-    test_send_api();
-    test_label_api();
-    test_recipient_api();
-    run_silentpayments_test_vectors();
-    silentpayments_sha256_tag_test();
-    dleq_tests();
-    test_dleq_bip_vectors();
-}
+static const struct tf_test_entry tests_silentpayments[] = {
+    CASE1(test_recipient_sort),
+    CASE1(test_send_api),
+    CASE1(test_label_api),
+    CASE1(test_recipient_api),
+    CASE1(run_silentpayments_test_vectors),
+    CASE1(silentpayments_sha256_tag_test),
+    CASE1(dleq_tests),
+    CASE1(test_dleq_bip_vectors),
+};
 
 #endif
