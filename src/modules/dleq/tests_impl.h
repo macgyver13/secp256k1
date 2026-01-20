@@ -213,19 +213,19 @@ static void run_test_dleq_api(void) {
     testutil_random_ge_test(&B_ge);
     secp256k1_pubkey_save(&B, &B_ge);
 
-    /* Check dleq prove input validation */
-    CHECK_ILLEGAL(STATIC_CTX, secp256k1_dleq_prove(STATIC_CTX, proof, seckey, &B, aux_rand, msg));
-    CHECK_ILLEGAL(CTX, secp256k1_dleq_prove(CTX, NULL, seckey, &B, aux_rand, msg));
-    CHECK_ILLEGAL(CTX, secp256k1_dleq_prove(CTX, proof, NULL, &B, aux_rand, msg));
-    CHECK_ILLEGAL(CTX, secp256k1_dleq_prove(CTX, proof, seckey, NULL, aux_rand, msg));
-    CHECK(secp256k1_dleq_prove(CTX, proof, seckey, &B, NULL, msg) == 1);
-    CHECK(secp256k1_dleq_prove(CTX, proof, seckey, &B, aux_rand, NULL) == 1);
-
     /* Generate verify material */
     secp256k1_scalar_set_b32(&a, seckey, NULL);
     secp256k1_dleq_pair(&CTX->ecmult_gen_ctx, &A_ge, &C_ge, &a, &B_ge);
     secp256k1_pubkey_save(&A, &A_ge);
     secp256k1_pubkey_save(&C, &C_ge);
+
+    /* Check dleq prove input validation */
+    CHECK_ILLEGAL(STATIC_CTX, secp256k1_dleq_prove(STATIC_CTX, proof, seckey, &B, &C, aux_rand, msg));
+    CHECK_ILLEGAL(CTX, secp256k1_dleq_prove(CTX, NULL, seckey, &B, &C, aux_rand, msg));
+    CHECK_ILLEGAL(CTX, secp256k1_dleq_prove(CTX, proof, NULL, &B, &C, aux_rand, msg));
+    CHECK_ILLEGAL(CTX, secp256k1_dleq_prove(CTX, proof, seckey, NULL, &C, aux_rand, msg));
+    CHECK(secp256k1_dleq_prove(CTX, proof, seckey, &B, &C, NULL, msg) == 1);
+    CHECK(secp256k1_dleq_prove(CTX, proof, seckey, &B, &C, aux_rand, NULL) == 1);
 
     /* Check dleq verify input validation */
     CHECK_ILLEGAL(CTX, secp256k1_dleq_verify(CTX, NULL, &A, &B, &C, msg));
@@ -237,9 +237,9 @@ static void run_test_dleq_api(void) {
     CHECK(secp256k1_dleq_verify(CTX, proof, &A, &B, &C, msg) == 0);
 
     /* Verify public API prove and verify functions */
-    CHECK(secp256k1_dleq_prove(CTX, proof, seckey, &B, aux_rand, msg) == 1);
+    CHECK(secp256k1_dleq_prove(CTX, proof, seckey, &B, &C, aux_rand, msg) == 1);
     CHECK(secp256k1_dleq_verify(CTX, proof, &A, &B, &C, msg) == 1);
-    CHECK(secp256k1_dleq_prove(CTX, proof, seckey, &B, NULL, NULL) == 1);
+    CHECK(secp256k1_dleq_prove(CTX, proof, seckey, &B, &C, NULL, NULL) == 1);
     CHECK(secp256k1_dleq_verify(CTX, proof, &A, &B, &C, NULL) == 1);
 }
 

@@ -252,10 +252,12 @@ int secp256k1_dleq_prove(
     unsigned char *proof64,
     const unsigned char *seckey32,
     const secp256k1_pubkey *pubkey_B,
+    const secp256k1_pubkey *pubkey_C,
     const unsigned char *aux_rand32,
     const unsigned char *msg
 ) {
     secp256k1_scalar a, s, e;
+    secp256k1_gej Aj;
     secp256k1_ge A, B, C;
     int overflow;
     int ret;
@@ -265,6 +267,7 @@ int secp256k1_dleq_prove(
     ARG_CHECK(proof64 != NULL);
     ARG_CHECK(seckey32 != NULL);
     ARG_CHECK(pubkey_B != NULL);
+    ARG_CHECK(pubkey_C != NULL);
 
     secp256k1_scalar_set_b32(&a, seckey32, &overflow);
     if (overflow || secp256k1_scalar_is_zero(&a)) {
@@ -276,7 +279,13 @@ int secp256k1_dleq_prove(
         return 0;
     }
 
-    secp256k1_dleq_pair(&ctx->ecmult_gen_ctx, &A, &C, &a, &B);
+    if (!secp256k1_pubkey_load(ctx, &C, pubkey_C)) {
+        secp256k1_scalar_clear(&a);
+        return 0;
+    }
+
+    secp256k1_ecmult_gen(&ctx->ecmult_gen_ctx, &Aj, &a);
+    secp256k1_ge_set_gej(&A, &Aj);
 
     ret = secp256k1_dleq_prove_internal(ctx, &s, &e, &a, &B, &A, &C, aux_rand32, msg);
     secp256k1_scalar_clear(&a);
