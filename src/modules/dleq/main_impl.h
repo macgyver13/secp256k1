@@ -156,15 +156,21 @@ static int secp256k1_dleq_prove_internal(const secp256k1_context *ctx, secp256k1
     unsigned char C_33[33];
     int ret = 1;
 
-    secp256k1_scalar_get_b32(a32, a);
     /* Reject infinity points */
     if (secp256k1_ge_is_infinity(B) || secp256k1_ge_is_infinity(A) || secp256k1_ge_is_infinity(C)) {
         return 0;
     }
+    secp256k1_scalar_get_b32(a32, a);
     secp256k1_eckey_pubkey_serialize33(B, B_33);
     secp256k1_eckey_pubkey_serialize33(A, A_33);
     secp256k1_eckey_pubkey_serialize33(C, C_33);
     ret &= secp256k1_dleq_nonce(hash_ctx, &k, a32, A_33, C_33, aux_rand32, m);
+    secp256k1_memclear_explicit(a32, sizeof(a32));
+    /* The nonce is still secret here, but it being zero is less likely than 1:2^255. */
+    secp256k1_declassify(ctx, &ret, sizeof(ret));
+    if (!ret) {
+        return 0;
+    }
 
     /* R1 = k*G, R2 = k*B */
     secp256k1_dleq_pair(&ctx->ecmult_gen_ctx, &R1, &R2, &k, B);
@@ -180,7 +186,6 @@ static int secp256k1_dleq_prove_internal(const secp256k1_context *ctx, secp256k1
     secp256k1_scalar_add(s, s, &k);
 
     secp256k1_scalar_clear(&k);
-    secp256k1_memclear_explicit(a32, sizeof(a32));
     return ret;
 }
 
@@ -239,6 +244,7 @@ int secp256k1_dleq_prove(
 ) {
     secp256k1_scalar a, s, e;
     secp256k1_ge A, B, C;
+    int is_sec_valid;
     int ret;
 
     VERIFY_CHECK(ctx != NULL);
@@ -247,10 +253,12 @@ int secp256k1_dleq_prove(
     ARG_CHECK(seckey32 != NULL);
     ARG_CHECK(pubkey_B != NULL);
 
-    if (!secp256k1_scalar_set_b32_seckey(&a, seckey32)) {
-        secp256k1_scalar_clear(&a);
-        return 0;
-    }
+    is_sec_valid = secp256k1_scalar_set_b32_seckey(&a, seckey32);
+    /* We don't want to declassify is_sec_valid, because that would reveal
+     * whether seckey32 is zero or at least the group order, i.e. the range of
+     * the secret key. Instead we substitute a valid scalar and fold the result
+     * into the return value at the end, without ever branching on it. */
+    secp256k1_scalar_cmov(&a, &secp256k1_scalar_one, !is_sec_valid);
 
     if (!secp256k1_pubkey_load(ctx, &B, pubkey_B)) {
         secp256k1_scalar_clear(&a);
@@ -258,6 +266,11 @@ int secp256k1_dleq_prove(
     }
 
     secp256k1_dleq_pair(&ctx->ecmult_gen_ctx, &A, &C, &a, &B);
+    /* A and C are the public statement that the proof is about: a verifier
+     * needs both to check it. We declassify them to allow serializing them and
+     * using them as branch points, just like R1 and R2 in prove_internal. */
+    secp256k1_declassify(ctx, &A, sizeof(A));
+    secp256k1_declassify(ctx, &C, sizeof(C));
 
     ret = secp256k1_dleq_prove_internal(ctx, &s, &e, &a, &B, &A, &C, aux_rand32, msg);
     secp256k1_scalar_clear(&a);
@@ -267,8 +280,9 @@ int secp256k1_dleq_prove(
 
     secp256k1_scalar_get_b32(&proof64[0], &e);
     secp256k1_scalar_get_b32(&proof64[32], &s);
+    secp256k1_memczero(proof64, 64, !is_sec_valid);
 
-    return 1;
+    return is_sec_valid;
 }
 
 int secp256k1_dleq_verify(
