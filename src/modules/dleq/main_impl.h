@@ -13,49 +13,31 @@
 /* Initializes SHA256 with fixed midstate. This midstate was computed by applying
  * SHA256 to SHA256("BIP0374/aux")||SHA256("BIP0374/aux"). */
 static void secp256k1_nonce_function_bip374_sha256_tagged_aux(secp256k1_sha256 *sha) {
-    secp256k1_sha256_initialize(sha);
-    sha->s[0] = 0x48479343ul;
-    sha->s[1] = 0xa9eb648cul;
-    sha->s[2] = 0x58952fe4ul;
-    sha->s[3] = 0x4772d3b2ul;
-    sha->s[4] = 0x977ab0a0ul;
-    sha->s[5] = 0xcb8e2740ul;
-    sha->s[6] = 0x60bb4b81ul;
-    sha->s[7] = 0x68a41b66ul;
-
-    sha->bytes = 64;
+    static const uint32_t midstate[8] = {
+        0x48479343ul, 0xa9eb648cul, 0x58952fe4ul, 0x4772d3b2ul,
+        0x977ab0a0ul, 0xcb8e2740ul, 0x60bb4b81ul, 0x68a41b66ul
+    };
+    secp256k1_sha256_initialize_midstate(sha, 64, midstate);
 }
 
 /* Initializes SHA256 with fixed midstate. This midstate was computed by applying
  * SHA256 to SHA256("BIP0374/nonce")||SHA256("BIP0374/nonce"). */
 static void secp256k1_nonce_function_bip374_sha256_tagged(secp256k1_sha256 *sha) {
-    secp256k1_sha256_initialize(sha);
-    sha->s[0] = 0xa810fc87ul;
-    sha->s[1] = 0x3b4a4d2aul;
-    sha->s[2] = 0xe302cfb4ul;
-    sha->s[3] = 0x322df1a0ul;
-    sha->s[4] = 0xd2e7fb82ul;
-    sha->s[5] = 0x7808570dul;
-    sha->s[6] = 0x9c33e0cdul;
-    sha->s[7] = 0x2dfbf7f6ul;
-
-    sha->bytes = 64;
+    static const uint32_t midstate[8] = {
+        0xa810fc87ul, 0x3b4a4d2aul, 0xe302cfb4ul, 0x322df1a0ul,
+        0xd2e7fb82ul, 0x7808570dul, 0x9c33e0cdul, 0x2dfbf7f6ul
+    };
+    secp256k1_sha256_initialize_midstate(sha, 64, midstate);
 }
 
 /* Initializes SHA256 with fixed midstate. This midstate was computed by applying
  * SHA256 to SHA256("BIP0374/challenge")||SHA256("BIP0374/challenge"). */
 static void secp256k1_dleq_sha256_tagged(secp256k1_sha256 *sha) {
-    secp256k1_sha256_initialize(sha);
-    sha->s[0] = 0x24f1c9c7ul;
-    sha->s[1] = 0xd1538c75ul;
-    sha->s[2] = 0xc9874ae8ul;
-    sha->s[3] = 0x6566de76ul;
-    sha->s[4] = 0x487843c9ul;
-    sha->s[5] = 0xc13d8026ul;
-    sha->s[6] = 0x39a2f3eful;
-    sha->s[7] = 0x2ad0fcb3ul;
-
-    sha->bytes = 64;
+    static const uint32_t midstate[8] = {
+        0x24f1c9c7ul, 0xd1538c75ul, 0xc9874ae8ul, 0x6566de76ul,
+        0x487843c9ul, 0xc13d8026ul, 0x39a2f3eful, 0x2ad0fcb3ul
+    };
+    secp256k1_sha256_initialize_midstate(sha, 64, midstate);
 }
 
 static int secp256k1_dleq_hash_point(const secp256k1_hash_ctx *hash_ctx, secp256k1_sha256 *sha, secp256k1_ge *p) {
@@ -108,17 +90,17 @@ static void secp256k1_nonce_function_dleq(const secp256k1_hash_ctx *hash_ctx, un
 static int secp256k1_dleq_nonce(const secp256k1_hash_ctx *hash_ctx, secp256k1_scalar *k, const unsigned char *a32, const unsigned char *A_33, const unsigned char *C_33, const unsigned char *aux_rand32, const unsigned char *m) {
     unsigned char buf[66];
     unsigned char nonce[32];
+    int ret;
 
     memcpy(buf, A_33, 33);
     memcpy(buf + 33, C_33, 33);
     secp256k1_nonce_function_dleq(hash_ctx, nonce, buf, 66, a32, aux_rand32, m);
 
     secp256k1_scalar_set_b32(k, nonce, NULL);
-    if (secp256k1_scalar_is_zero(k)) {
-        return 0;
-    }
+    ret = !secp256k1_scalar_is_zero(k);
 
-    return 1;
+    secp256k1_memclear_explicit(nonce, sizeof(nonce));
+    return ret;
 }
 
 /* Generates a challenge as defined in BIP0374 */
@@ -257,7 +239,6 @@ int secp256k1_dleq_prove(
 ) {
     secp256k1_scalar a, s, e;
     secp256k1_ge A, B, C;
-    int overflow;
     int ret;
 
     VERIFY_CHECK(ctx != NULL);
@@ -266,8 +247,8 @@ int secp256k1_dleq_prove(
     ARG_CHECK(seckey32 != NULL);
     ARG_CHECK(pubkey_B != NULL);
 
-    secp256k1_scalar_set_b32(&a, seckey32, &overflow);
-    if (overflow || secp256k1_scalar_is_zero(&a)) {
+    if (!secp256k1_scalar_set_b32_seckey(&a, seckey32)) {
+        secp256k1_scalar_clear(&a);
         return 0;
     }
 

@@ -26,9 +26,7 @@ static void run_test_dleq_prove_verify(void) {
     unsigned char C_33[33];
     unsigned char aux_rand[32];
     unsigned char msg[32];
-    unsigned char proof_64[64] = {0};
     int i;
-    int overflow;
     secp256k1_sha256 sha;
     secp256k1_sha256 sha_optimized;
     unsigned char aux_tag[] = {'B', 'I', 'P', '0', '3', '7', '4', '/', 'a', 'u', 'x'};
@@ -58,10 +56,6 @@ static void run_test_dleq_prove_verify(void) {
         secp256k1_dleq_pair(&CTX->ecmult_gen_ctx, &A, &C, &a, &B);
         CHECK(secp256k1_dleq_prove_internal(CTX, &s, &e, &a, &B, &A, &C, aux_rand, (i & 1) ? msg : NULL) == 1);
         CHECK(secp256k1_dleq_verify_internal(secp256k1_get_hash_context(CTX), &s, &e, &A, &B, &C, (i & 1) ? msg : NULL) == 1);
-        secp256k1_scalar_set_b32(&s, proof_64, &overflow);
-        VERIFY_CHECK(overflow == 0);
-        secp256k1_scalar_set_b32(&e, proof_64 + 32, &overflow);
-        VERIFY_CHECK(overflow == 0);
     }
 
     {
