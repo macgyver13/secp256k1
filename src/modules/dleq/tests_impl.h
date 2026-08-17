@@ -99,9 +99,6 @@ static void run_test_dleq_prove_verify(void) {
     for (i = 0; i < COUNT; i++) {
         dleq_nonce_bitflip(args, 0, sizeof(a32));
         dleq_nonce_bitflip(args, 1, sizeof(A_33));
-        /* Flip C */
-        dleq_nonce_bitflip(args, 2, sizeof(C_33));
-        /* Flip C again */
         dleq_nonce_bitflip(args, 2, sizeof(C_33));
         dleq_nonce_bitflip(args, 3, sizeof(aux_rand));
         dleq_nonce_bitflip(args, 4, sizeof(msg));
@@ -197,6 +194,7 @@ static void run_test_dleq_api(void) {
     unsigned char proof[64];
     unsigned char aux_rand[32];
     unsigned char msg[32];
+    unsigned char wrong_msg[32];
     secp256k1_scalar a;
     secp256k1_ge A_ge, B_ge, C_ge;
 
@@ -204,6 +202,7 @@ static void run_test_dleq_api(void) {
     testrand256(seckey);
     testrand256(aux_rand);
     testrand256(msg);
+    testrand256(wrong_msg);
     testutil_random_ge_test(&B_ge);
     secp256k1_pubkey_save(&B, &B_ge);
 
@@ -228,13 +227,20 @@ static void run_test_dleq_api(void) {
     CHECK_ILLEGAL(CTX, secp256k1_dleq_verify(CTX, proof, &A, &B, NULL, msg));
     /* Verify rejects an invalid (all-zero) proof */
     memset(proof, 0, sizeof(proof));
-    CHECK(secp256k1_dleq_verify(CTX, proof, &A, &B, &C, msg) == 0);
+    CHECK(secp256k1_dleq_verify(CTX, proof, &A, &B, &C, NULL) == 0);
 
-    /* Verify public API prove and verify functions */
+    /* A proof over a message verifies only against that message */
     CHECK(secp256k1_dleq_prove(CTX, proof, seckey, &B, aux_rand, msg) == 1);
     CHECK(secp256k1_dleq_verify(CTX, proof, &A, &B, &C, msg) == 1);
+    CHECK(secp256k1_dleq_verify(CTX, proof, &A, &B, &C, wrong_msg) == 0);
+    CHECK(secp256k1_dleq_verify(CTX, proof, &A, &B, &C, NULL) == 0);
+
+    /* A proof over no message does not verify against a message */
     CHECK(secp256k1_dleq_prove(CTX, proof, seckey, &B, NULL, NULL) == 1);
     CHECK(secp256k1_dleq_verify(CTX, proof, &A, &B, &C, NULL) == 1);
+    CHECK(secp256k1_dleq_verify(CTX, proof, &A, &B, &C, msg) == 0);
+    /* Verification needs no precomputed generator table */
+    CHECK(secp256k1_dleq_verify(STATIC_CTX, proof, &A, &B, &C, NULL) == 1);
 }
 
 static const struct tf_test_entry tests_dleq[] = {
