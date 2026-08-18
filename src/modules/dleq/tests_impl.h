@@ -17,6 +17,12 @@ static void dleq_nonce_bitflip(unsigned char **args, size_t n_flip, size_t n_byt
     CHECK(secp256k1_scalar_eq(&k1, &k2) == 0);
 }
 
+static void dleq_sha256_zeros(uint32_t *state, const unsigned char *blocks64, size_t n_blocks) {
+    (void)blocks64;
+    (void)n_blocks;
+    memset(state, 0, 8 * sizeof(*state));
+}
+
 static void run_test_dleq_prove_verify(void) {
     secp256k1_scalar s, a, k;
     secp256k1_ge A, B, C;
@@ -81,6 +87,20 @@ static void run_test_dleq_prove_verify(void) {
         CHECK(secp256k1_dleq_prove_internal(CTX, &s, e32, &a, &p_inf, &A, &C, aux_rand, msg) == 0);
         CHECK(secp256k1_dleq_prove_internal(CTX, &s, e32, &a, &B, &p_inf, &C, aux_rand, msg) == 0);
         CHECK(secp256k1_dleq_prove_internal(CTX, &s, e32, &a, &B, &A, &p_inf, aux_rand, msg) == 0);
+    }
+    {
+        secp256k1_ge A_neg = secp256k1_ge_const_g;
+        unsigned char one32[32] = { 0 };
+        one32[31] = 1;
+        secp256k1_ge_neg(&A_neg, &A_neg);
+        secp256k1_scalar_set_int(&s, 1);
+        CHECK(secp256k1_dleq_verify_internal(secp256k1_get_hash_context(CTX), &s, one32, &A_neg, &B, &B, msg) == 0);
+    }
+    {
+        secp256k1_context *ctx = secp256k1_context_clone(CTX);
+        ctx->hash_ctx.fn_sha256_compression = dleq_sha256_zeros;
+        CHECK(secp256k1_dleq_prove_internal(ctx, &s, e32, &a, &B, &A, &C, aux_rand, msg) == 0);
+        secp256k1_context_destroy(ctx);
     }
 
     /* Nonce tests */
@@ -227,6 +247,10 @@ static void run_test_dleq_api(void) {
     CHECK(secp256k1_dleq_prove(CTX, proof, seckey, &B, NULL, msg) == 1);
     CHECK(secp256k1_dleq_prove(CTX, proof, seckey, &B, aux_rand, NULL) == 1);
     {
+        secp256k1_pubkey invalid_pubkey = { 0 };
+        CHECK_ILLEGAL(CTX, secp256k1_dleq_prove(CTX, proof, seckey, &invalid_pubkey, aux_rand, msg));
+    }
+    {
         unsigned char invalid_seckey[32] = { 0 };
         unsigned char zero_proof[64] = { 0 };
         /* Test invalid secret key handling */
@@ -250,6 +274,12 @@ static void run_test_dleq_api(void) {
     CHECK_ILLEGAL(CTX, secp256k1_dleq_verify(CTX, proof, NULL, &B, &C, msg));
     CHECK_ILLEGAL(CTX, secp256k1_dleq_verify(CTX, proof, &A, NULL, &C, msg));
     CHECK_ILLEGAL(CTX, secp256k1_dleq_verify(CTX, proof, &A, &B, NULL, msg));
+    {
+        secp256k1_pubkey invalid_pubkey = { 0 };
+        CHECK_ILLEGAL(CTX, secp256k1_dleq_verify(CTX, proof, &invalid_pubkey, &B, &C, msg));
+        CHECK_ILLEGAL(CTX, secp256k1_dleq_verify(CTX, proof, &A, &invalid_pubkey, &C, msg));
+        CHECK_ILLEGAL(CTX, secp256k1_dleq_verify(CTX, proof, &A, &B, &invalid_pubkey, msg));
+    }
     /* Verify rejects an invalid (all-zero) proof */
     memset(proof, 0, sizeof(proof));
     CHECK(secp256k1_dleq_verify(CTX, proof, &A, &B, &C, NULL) == 0);
@@ -257,6 +287,9 @@ static void run_test_dleq_api(void) {
     /* A proof over a message verifies only against that message */
     CHECK(secp256k1_dleq_prove(CTX, proof, seckey, &B, aux_rand, msg) == 1);
     CHECK(secp256k1_dleq_verify(CTX, proof, &A, &B, &C, msg) == 1);
+    memcpy(&proof[32], secp256k1_group_order_bytes, 32);
+    CHECK(secp256k1_dleq_verify(CTX, proof, &A, &B, &C, msg) == 0);
+    CHECK(secp256k1_dleq_prove(CTX, proof, seckey, &B, aux_rand, msg) == 1);
     CHECK(secp256k1_dleq_verify(CTX, proof, &A, &B, &C, wrong_msg) == 0);
     CHECK(secp256k1_dleq_verify(CTX, proof, &A, &B, &C, NULL) == 0);
 
@@ -277,6 +310,12 @@ static void run_test_dleq_api(void) {
         CHECK(secp256k1_dleq_prove(ctx, proof, seckey, &B, aux_rand, msg) == 1);
         CHECK(secp256k1_memcmp_var(proof, ones, sizeof(ones)) == 0);
         CHECK(secp256k1_dleq_verify(ctx, proof, &A, &B, &C, msg) == 1);
+        secp256k1_context_destroy(ctx);
+    }
+    {
+        secp256k1_context *ctx = secp256k1_context_clone(CTX);
+        ctx->hash_ctx.fn_sha256_compression = dleq_sha256_zeros;
+        CHECK(secp256k1_dleq_prove(ctx, proof, seckey, &B, aux_rand, msg) == 0);
         secp256k1_context_destroy(ctx);
     }
 }
