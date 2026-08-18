@@ -16,7 +16,7 @@ extern "C" {
  *  demonstrates that A = a*G and C = a*B for the same scalar a, without
  *  revealing a.
  *
- *  The proof consists of two 32-byte scalars (e, s) totaling 64 bytes.
+ *  The proof consists of a 32-byte challenge e and a 32-byte scalar s.
  */
 
 /** Generate a DLEQ proof.
@@ -32,8 +32,8 @@ extern "C" {
  *  Out:     proof64: pointer to 64-byte proof = bytes(32, e) || bytes(32, s)
  *  In:     seckey32: pointer to 32-byte secret key (scalar a)
  *          pubkey_B: pointer to public key B (base point)
- *       aux_rand32: pointer to 32-byte auxiliary randomness (can be NULL)
- *              msg: pointer to 32-byte message (can be NULL)
+ *        aux_rand32: pointer to 32-byte auxiliary randomness (can be NULL)
+ *               msg: pointer to 32-byte message (can be NULL)
  */
 SECP256K1_API SECP256K1_WARN_UNUSED_RESULT int secp256k1_dleq_prove(
     const secp256k1_context *ctx,
@@ -53,7 +53,7 @@ SECP256K1_API SECP256K1_WARN_UNUSED_RESULT int secp256k1_dleq_prove(
  *           0 if proof is invalid or any input is invalid
  *
  *  Args:       ctx: pointer to a context object
- *  In:      proof64: pointer to 64-byte proof = bytes(32, e) || bytes(32, s)
+ *  In:     proof64: pointer to 64-byte proof = bytes(32, e) || bytes(32, s)
  *         pubkey_A: pointer to public key A
  *         pubkey_B: pointer to public key B (base point)
  *         pubkey_C: pointer to public key C

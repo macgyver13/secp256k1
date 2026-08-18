@@ -18,7 +18,7 @@ static void dleq_nonce_bitflip(unsigned char **args, size_t n_flip, size_t n_byt
 }
 
 static void run_test_dleq_prove_verify(void) {
-    secp256k1_scalar s, e, a, k;
+    secp256k1_scalar s, a, k;
     secp256k1_ge A, B, C;
     unsigned char *args[5];
     unsigned char a32[32];
@@ -26,6 +26,7 @@ static void run_test_dleq_prove_verify(void) {
     unsigned char C_33[33];
     unsigned char aux_rand[32];
     unsigned char msg[32];
+    unsigned char e32[32];
     int i;
     secp256k1_sha256 sha;
     secp256k1_sha256 sha_optimized;
@@ -54,29 +55,32 @@ static void run_test_dleq_prove_verify(void) {
         testrand256(aux_rand);
         testrand_bytes_test(msg, sizeof(msg));
         secp256k1_dleq_pair(&CTX->ecmult_gen_ctx, &A, &C, &a, &B);
-        CHECK(secp256k1_dleq_prove_internal(CTX, &s, &e, &a, &B, &A, &C, aux_rand, (i & 1) ? msg : NULL) == 1);
-        CHECK(secp256k1_dleq_verify_internal(secp256k1_get_hash_context(CTX), &s, &e, &A, &B, &C, (i & 1) ? msg : NULL) == 1);
+        CHECK(secp256k1_dleq_prove_internal(CTX, &s, e32, &a, &B, &A, &C, aux_rand, (i & 1) ? msg : NULL) == 1);
+        CHECK(secp256k1_dleq_verify_internal(secp256k1_get_hash_context(CTX), &s, e32, &A, &B, &C, (i & 1) ? msg : NULL) == 1);
     }
 
     {
         secp256k1_scalar tmp;
+        unsigned char e_tmp[32];
         secp256k1_scalar_set_int(&tmp, 1);
-        CHECK(secp256k1_dleq_verify_internal(secp256k1_get_hash_context(CTX), &tmp, &e, &A, &B, &C, msg) == 0);
-        CHECK(secp256k1_dleq_verify_internal(secp256k1_get_hash_context(CTX), &s, &tmp, &A, &B, &C, msg) == 0);
+        memcpy(e_tmp, e32, sizeof(e_tmp));
+        e_tmp[0] ^= 1;
+        CHECK(secp256k1_dleq_verify_internal(secp256k1_get_hash_context(CTX), &tmp, e32, &A, &B, &C, msg) == 0);
+        CHECK(secp256k1_dleq_verify_internal(secp256k1_get_hash_context(CTX), &s, e_tmp, &A, &B, &C, msg) == 0);
     }
     {
         secp256k1_ge p_tmp;
         testutil_random_ge_test(&p_tmp);
-        CHECK(secp256k1_dleq_verify_internal(secp256k1_get_hash_context(CTX), &s, &e, &p_tmp, &B, &C, msg) == 0);
-        CHECK(secp256k1_dleq_verify_internal(secp256k1_get_hash_context(CTX), &s, &e, &A, &p_tmp, &C, msg) == 0);
-        CHECK(secp256k1_dleq_verify_internal(secp256k1_get_hash_context(CTX), &s, &e, &A, &B, &p_tmp, msg) == 0);
+        CHECK(secp256k1_dleq_verify_internal(secp256k1_get_hash_context(CTX), &s, e32, &p_tmp, &B, &C, msg) == 0);
+        CHECK(secp256k1_dleq_verify_internal(secp256k1_get_hash_context(CTX), &s, e32, &A, &p_tmp, &C, msg) == 0);
+        CHECK(secp256k1_dleq_verify_internal(secp256k1_get_hash_context(CTX), &s, e32, &A, &B, &p_tmp, msg) == 0);
     }
     {
         secp256k1_ge p_inf;
         secp256k1_ge_set_infinity(&p_inf);
-        CHECK(secp256k1_dleq_prove_internal(CTX, &s, &e, &a, &p_inf, &A, &C, aux_rand, msg) == 0);
-        CHECK(secp256k1_dleq_prove_internal(CTX, &s, &e, &a, &B, &p_inf, &C, aux_rand, msg) == 0);
-        CHECK(secp256k1_dleq_prove_internal(CTX, &s, &e, &a, &B, &A, &p_inf, aux_rand, msg) == 0);
+        CHECK(secp256k1_dleq_prove_internal(CTX, &s, e32, &a, &p_inf, &A, &C, aux_rand, msg) == 0);
+        CHECK(secp256k1_dleq_prove_internal(CTX, &s, e32, &a, &B, &p_inf, &C, aux_rand, msg) == 0);
+        CHECK(secp256k1_dleq_prove_internal(CTX, &s, e32, &a, &B, &A, &p_inf, aux_rand, msg) == 0);
     }
 
     /* Nonce tests */
@@ -126,7 +130,7 @@ static int is_not_empty(const unsigned char *arr){
 }
 
 static void run_test_dleq_bip374_vectors(void) {
-    secp256k1_scalar a, s, e;
+    secp256k1_scalar a, s;
     secp256k1_ge A;
     secp256k1_ge B;
     secp256k1_ge C;
@@ -136,6 +140,7 @@ static void run_test_dleq_bip374_vectors(void) {
     for (i = 0; i < 6; ++i) {
         int ret = 1;
         const unsigned char *m = NULL;
+        unsigned char e32[32];
         secp256k1_ge_set_infinity(&B);
         /* expect the last 3 generate proof vectors to fail */
         if (i > 2) ret = 0;
@@ -150,14 +155,14 @@ static void run_test_dleq_bip374_vectors(void) {
         if (is_not_empty(msg_bytes[i])) {
             m = msg_bytes[i];
         }
-        CHECK(secp256k1_dleq_prove_internal(CTX, &s, &e, &a, &B, &A, &C, (unsigned char*)(auxrand_bytes[i]), m) == ret);
+        CHECK(secp256k1_dleq_prove_internal(CTX, &s, e32, &a, &B, &A, &C, (unsigned char*)(auxrand_bytes[i]), m) == ret);
 
         if (ret) {
             unsigned char proof[64];
-            secp256k1_scalar_get_b32(proof, &e);
+            memcpy(proof, e32, 32);
             secp256k1_scalar_get_b32(proof + 32, &s);
             CHECK(memcmp(proof, proof_bytes[i], 64) == 0);
-            CHECK(secp256k1_dleq_verify_internal(secp256k1_get_hash_context(CTX), &s, &e, &A, &B, &C, m) == 1);
+            CHECK(secp256k1_dleq_verify_internal(secp256k1_get_hash_context(CTX), &s, e32, &A, &B, &C, m) == 1);
         }
     }
 
@@ -177,14 +182,22 @@ static void run_test_dleq_bip374_vectors(void) {
         CHECK(secp256k1_eckey_pubkey_parse(&B, B_bytes[i], 33) == 1);
         CHECK(secp256k1_eckey_pubkey_parse(&C, C_bytes[i], 33) == 1);
 
-        secp256k1_scalar_set_b32(&e, proof_bytes[i], NULL);
         secp256k1_scalar_set_b32(&s, proof_bytes[i] + 32, NULL);
 
         if (is_not_empty(msg_bytes[i])) {
             m = msg_bytes[i];
         }
 
-        CHECK(secp256k1_dleq_verify_internal(secp256k1_get_hash_context(CTX), &s, &e, &A, &B, &C, m) == success[i]);
+        CHECK(secp256k1_dleq_verify_internal(secp256k1_get_hash_context(CTX), &s, proof_bytes[i], &A, &B, &C, m) == success[i]);
+    }
+}
+
+static void dleq_sha256_ones(uint32_t *state, const unsigned char *blocks64, size_t n_blocks) {
+    size_t i;
+    (void)blocks64;
+    (void)n_blocks;
+    for (i = 0; i < 8; i++) {
+        state[i] = UINT32_MAX;
     }
 }
 
@@ -253,6 +266,19 @@ static void run_test_dleq_api(void) {
     CHECK(secp256k1_dleq_verify(CTX, proof, &A, &B, &C, msg) == 0);
     /* Verification needs no precomputed generator table */
     CHECK(secp256k1_dleq_verify(STATIC_CTX, proof, &A, &B, &C, NULL) == 1);
+
+    {
+        secp256k1_context *ctx = secp256k1_context_clone(CTX);
+        unsigned char ones[32];
+        /* Force a challenge larger than the group order and check that the
+         * proof preserves its full 256-bit value. */
+        memset(ones, 0xFF, sizeof(ones));
+        ctx->hash_ctx.fn_sha256_compression = dleq_sha256_ones;
+        CHECK(secp256k1_dleq_prove(ctx, proof, seckey, &B, aux_rand, msg) == 1);
+        CHECK(secp256k1_memcmp_var(proof, ones, sizeof(ones)) == 0);
+        CHECK(secp256k1_dleq_verify(ctx, proof, &A, &B, &C, msg) == 1);
+        secp256k1_context_destroy(ctx);
+    }
 }
 
 static const struct tf_test_entry tests_dleq[] = {

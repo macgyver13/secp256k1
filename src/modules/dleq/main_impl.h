@@ -104,8 +104,7 @@ static int secp256k1_dleq_nonce(const secp256k1_hash_ctx *hash_ctx, secp256k1_sc
 }
 
 /* Generates a challenge as defined in BIP0374 */
-static void secp256k1_dleq_challenge(const secp256k1_hash_ctx *hash_ctx, secp256k1_scalar *e, secp256k1_ge *B, secp256k1_ge *R1, secp256k1_ge *R2, secp256k1_ge *A, secp256k1_ge *C, const unsigned char *m) {
-    unsigned char buf[32];
+static void secp256k1_dleq_challenge(const secp256k1_hash_ctx *hash_ctx, unsigned char *e32, secp256k1_ge *B, secp256k1_ge *R1, secp256k1_ge *R2, secp256k1_ge *A, secp256k1_ge *C, const unsigned char *m) {
     secp256k1_sha256 sha;
     secp256k1_ge generator_point = secp256k1_ge_const_g;
 
@@ -117,9 +116,7 @@ static void secp256k1_dleq_challenge(const secp256k1_hash_ctx *hash_ctx, secp256
     secp256k1_dleq_hash_point(hash_ctx, &sha, R1);
     secp256k1_dleq_hash_point(hash_ctx, &sha, R2);
     if (m) secp256k1_sha256_write(hash_ctx, &sha, m, 32);
-    secp256k1_sha256_finalize(hash_ctx, &sha, buf);
-
-    secp256k1_scalar_set_b32(e, buf, NULL);
+    secp256k1_sha256_finalize(hash_ctx, &sha, e32);
 }
 
 /* Generate points from scalar a such that A = a*G and C = a*B */
@@ -137,8 +134,9 @@ static void secp256k1_dleq_pair(const secp256k1_ecmult_gen_context *ecmult_gen_c
  * that A = a⋅G and C = a⋅B without revealing anything about a.
  *
  *  Returns: 1 if proof creation was successful. 0 if an error occurred.
- *  Out:       scalar e: part of proof = bytes(32, e) || bytes(32, s).
- *             scalar s: other part of proof = bytes(32, e) || bytes(32, s).
+ *  Out:
+ *    scalar s: other part of proof = e32 || bytes(32, s).
+ *         e32: 32-byte challenge, part of proof = e32 || bytes(32, s).
  *  In:     a : scalar a to be proven that both A and C were generated from
  *          B : point on the curve
  *          A : point on the curve(a⋅G) generated from a
@@ -146,9 +144,10 @@ static void secp256k1_dleq_pair(const secp256k1_ecmult_gen_context *ecmult_gen_c
  * aux_rand32 : pointer to 32-byte auxiliary randomness used to generate the nonce in secp256k1_nonce_function_dleq.
  *          m : an optional message
  * */
-static int secp256k1_dleq_prove_internal(const secp256k1_context *ctx, secp256k1_scalar *s, secp256k1_scalar *e, const secp256k1_scalar *a, secp256k1_ge *B, secp256k1_ge *A, secp256k1_ge *C, const unsigned char *aux_rand32, const unsigned char *m) {
+static int secp256k1_dleq_prove_internal(const secp256k1_context *ctx, secp256k1_scalar *s, unsigned char *e32, const secp256k1_scalar *a, secp256k1_ge *B, secp256k1_ge *A, secp256k1_ge *C, const unsigned char *aux_rand32, const unsigned char *m) {
     const secp256k1_hash_ctx *hash_ctx = secp256k1_get_hash_context(ctx);
     secp256k1_ge R1, R2;
+    secp256k1_scalar e;
     secp256k1_scalar k = { 0 };
     unsigned char a32[32];
     unsigned char A_33[33];
@@ -181,8 +180,9 @@ static int secp256k1_dleq_prove_internal(const secp256k1_context *ctx, secp256k1
 
     /* e = tagged hash(A, B, C, R1, R2) */
     /* s = k + e * a */
-    secp256k1_dleq_challenge(hash_ctx, e, B, &R1, &R2, A, C, m);
-    secp256k1_scalar_mul(s, e, a);
+    secp256k1_dleq_challenge(hash_ctx, e32, B, &R1, &R2, A, C, m);
+    secp256k1_scalar_set_b32(&e, e32, NULL);
+    secp256k1_scalar_mul(s, &e, a);
     secp256k1_scalar_add(s, s, &k);
 
     secp256k1_scalar_clear(&k);
@@ -195,15 +195,17 @@ static int secp256k1_dleq_prove_internal(const secp256k1_context *ctx, secp256k1
  * The former from multiplying by G, and the latter from multiplying by B.
  *
  *  Returns: 1 if proof verification was successful. 0 if an error occurred.
- *  In: proof : proof bytes(32, e) || bytes(32, s) consists of scalar e and scalar s
- *          A : point on the curve(a⋅G) computed from a
- *          B : point on the curve
- *          C : point on the curve(a⋅B) computed from a
- *          m : optional message
+ *  In: scalar s : other part of proof = e32 || bytes(32, s)
+ *           e32 : 32-byte challenge, part of proof = e32 || bytes(32, s)
+ *             A : point on the curve(a⋅G) computed from a
+ *             B : point on the curve
+ *             C : point on the curve(a⋅B) computed from a
+ *             m : optional message
  * */
-static int secp256k1_dleq_verify_internal(const secp256k1_hash_ctx *hash_ctx, secp256k1_scalar *s, secp256k1_scalar *e, secp256k1_ge *A, secp256k1_ge *B, secp256k1_ge *C, const unsigned char *m) {
+static int secp256k1_dleq_verify_internal(const secp256k1_hash_ctx *hash_ctx, secp256k1_scalar *s, const unsigned char *e32, secp256k1_ge *A, secp256k1_ge *B, secp256k1_ge *C, const unsigned char *m) {
+    secp256k1_scalar e;
     secp256k1_scalar e_neg;
-    secp256k1_scalar e_expected;
+    unsigned char e_expected32[32];
     secp256k1_gej Bj;
     secp256k1_gej Aj, Cj;
     secp256k1_gej R1j, R2j;
@@ -213,7 +215,12 @@ static int secp256k1_dleq_verify_internal(const secp256k1_hash_ctx *hash_ctx, se
     secp256k1_gej_set_ge(&Aj, A);
     secp256k1_gej_set_ge(&Cj, C);
 
-    secp256k1_scalar_negate(&e_neg, e);
+    /* BIP-374 treats e as the full 256-bit challenge hash: it is not reduced
+     * mod n on the wire and, unlike s, is not rejected for being >= n. Only
+     * the curve equations below use the reduced scalar, so the challenge
+     * itself must be compared as bytes to stay byte-exact with the spec. */
+    secp256k1_scalar_set_b32(&e, e32, NULL);
+    secp256k1_scalar_negate(&e_neg, &e);
     /* R1 = s*G  - e*A */
     secp256k1_ecmult(&R1j, &Aj, &e_neg, s);
     /* R2 = s*B - e*C */
@@ -228,10 +235,8 @@ static int secp256k1_dleq_verify_internal(const secp256k1_hash_ctx *hash_ctx, se
     }
     secp256k1_ge_set_gej(&R1, &R1j);
     secp256k1_ge_set_gej(&R2, &R2j);
-    secp256k1_dleq_challenge(hash_ctx, &e_expected, B, &R1, &R2, A, C, m);
-
-    secp256k1_scalar_add(&e_expected, &e_expected, &e_neg);
-    return secp256k1_scalar_is_zero(&e_expected);
+    secp256k1_dleq_challenge(hash_ctx, e_expected32, B, &R1, &R2, A, C, m);
+    return secp256k1_memcmp_var(e_expected32, e32, sizeof(e_expected32)) == 0;
 }
 
 int secp256k1_dleq_prove(
@@ -242,8 +247,9 @@ int secp256k1_dleq_prove(
     const unsigned char *aux_rand32,
     const unsigned char *msg
 ) {
-    secp256k1_scalar a, s, e;
+    secp256k1_scalar a, s;
     secp256k1_ge A, B, C;
+    unsigned char e32[32];
     int is_sec_valid;
     int ret;
 
@@ -272,13 +278,13 @@ int secp256k1_dleq_prove(
     secp256k1_declassify(ctx, &A, sizeof(A));
     secp256k1_declassify(ctx, &C, sizeof(C));
 
-    ret = secp256k1_dleq_prove_internal(ctx, &s, &e, &a, &B, &A, &C, aux_rand32, msg);
+    ret = secp256k1_dleq_prove_internal(ctx, &s, e32, &a, &B, &A, &C, aux_rand32, msg);
     secp256k1_scalar_clear(&a);
     if (!ret) {
         return 0;
     }
 
-    secp256k1_scalar_get_b32(&proof64[0], &e);
+    memcpy(&proof64[0], e32, 32);
     secp256k1_scalar_get_b32(&proof64[32], &s);
     secp256k1_memczero(proof64, 64, !is_sec_valid);
 
@@ -293,7 +299,7 @@ int secp256k1_dleq_verify(
     const secp256k1_pubkey *pubkey_C,
     const unsigned char *msg
 ) {
-    secp256k1_scalar s, e;
+    secp256k1_scalar s;
     secp256k1_ge A, B, C;
     int overflow;
 
@@ -302,11 +308,6 @@ int secp256k1_dleq_verify(
     ARG_CHECK(pubkey_A != NULL);
     ARG_CHECK(pubkey_B != NULL);
     ARG_CHECK(pubkey_C != NULL);
-
-    secp256k1_scalar_set_b32(&e, &proof64[0], &overflow);
-    if (overflow) {
-        return 0;
-    }
 
     secp256k1_scalar_set_b32(&s, &proof64[32], &overflow);
     if (overflow) {
@@ -323,7 +324,7 @@ int secp256k1_dleq_verify(
         return 0;
     }
 
-    return secp256k1_dleq_verify_internal(secp256k1_get_hash_context(ctx), &s, &e, &A, &B, &C, msg);
+    return secp256k1_dleq_verify_internal(secp256k1_get_hash_context(ctx), &s, &proof64[0], &A, &B, &C, msg);
 }
 
 #endif /* SECP256K1_MODULE_DLEQ_MAIN_H */
