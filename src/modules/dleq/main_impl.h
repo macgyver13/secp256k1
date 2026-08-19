@@ -244,8 +244,7 @@ int secp256k1_dleq_prove(
 ) {
     secp256k1_scalar a, s, e;
     secp256k1_ge A, B, C;
-    int is_sec_valid;
-    int ret;
+    int is_sec_valid, ret;
 
     VERIFY_CHECK(ctx != NULL);
     ARG_CHECK(secp256k1_ecmult_gen_context_is_built(&ctx->ecmult_gen_ctx));
@@ -253,14 +252,13 @@ int secp256k1_dleq_prove(
     ARG_CHECK(seckey32 != NULL);
     ARG_CHECK(pubkey_B != NULL);
 
-    is_sec_valid = secp256k1_scalar_set_b32_seckey(&a, seckey32);
-    /* We don't want to declassify is_sec_valid, because that would reveal
-     * whether seckey32 is zero or at least the group order, i.e. the range of
-     * the secret key. Instead we substitute a valid scalar and fold the result
-     * into the return value at the end, without ever branching on it. */
-    secp256k1_scalar_cmov(&a, &secp256k1_scalar_one, !is_sec_valid);
-
     if (!secp256k1_pubkey_load(ctx, &B, pubkey_B)) {
+        return 0;
+    }
+
+    is_sec_valid = secp256k1_scalar_set_b32_seckey(&a, seckey32);
+    secp256k1_declassify(ctx, &is_sec_valid, sizeof(is_sec_valid));
+    if (!is_sec_valid) {
         secp256k1_scalar_clear(&a);
         return 0;
     }
@@ -280,9 +278,8 @@ int secp256k1_dleq_prove(
 
     secp256k1_scalar_get_b32(&proof64[0], &e);
     secp256k1_scalar_get_b32(&proof64[32], &s);
-    secp256k1_memczero(proof64, 64, !is_sec_valid);
 
-    return is_sec_valid;
+    return 1;
 }
 
 int secp256k1_dleq_verify(

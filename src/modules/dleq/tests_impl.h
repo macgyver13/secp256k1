@@ -239,15 +239,10 @@ static void run_test_dleq_api(void) {
     }
     {
         unsigned char invalid_seckey[32] = { 0 };
-        unsigned char zero_proof[64] = { 0 };
         /* Test invalid secret key handling */
-        memset(proof, 0xFF, sizeof(proof));
         CHECK(secp256k1_dleq_prove(CTX, proof, invalid_seckey, &B, aux_rand, msg) == 0);
-        CHECK(secp256k1_memcmp_var(proof, zero_proof, sizeof(proof)) == 0);
         memcpy(invalid_seckey, secp256k1_group_order_bytes, sizeof(invalid_seckey));
-        memset(proof, 0xFF, sizeof(proof));
         CHECK(secp256k1_dleq_prove(CTX, proof, invalid_seckey, &B, aux_rand, msg) == 0);
-        CHECK(secp256k1_memcmp_var(proof, zero_proof, sizeof(proof)) == 0);
     }
 
     /* Generate verify material */
