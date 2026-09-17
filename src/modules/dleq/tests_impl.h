@@ -6,7 +6,7 @@
 #ifndef SECP256K1_MODULE_DLEQ_TESTS_H
 #define SECP256K1_MODULE_DLEQ_TESTS_H
 
-#include "dleq_vectors.h"
+#include "vectors.h"
 #include "../../unit_test.h"
 
 static void dleq_nonce_bitflip(unsigned char **args, size_t n_flip, size_t n_bytes) {
@@ -147,77 +147,51 @@ static void run_test_dleq_prove_verify(void) {
     }
 }
 
-/* Test BIP-374 test vectors ("Discrete Log Equality Proofs")
- * See tools/test_vectors_dleq_generate.py */
-static unsigned char zero_array[32] = {0x00};
-
-/* Helper function to check if given array is NOT equivalent to all zero array.
- * Used to detect test vectors where zero array can represent:
- *     B_bytes at infinity
- *     Empty optional msg_bytes */
-static int is_not_empty(const unsigned char *arr) {
-    return (memcmp(arr, zero_array, 32) != 0);
-}
-
 static void run_test_dleq_bip374_vectors(void) {
     secp256k1_scalar a, e, s;
     secp256k1_ge A;
     secp256k1_ge B;
     secp256k1_ge C;
-    int i;
+    size_t i;
 
-    /* bip-0374/test_vectors_generate_proof.csv */
-    for (i = 0; i < 6; ++i) {
-        int ret = 1;
-        const unsigned char *msg32 = NULL;
-        secp256k1_ge_set_infinity(&B);
-        /* expect the last 3 generate proof vectors to fail */
-        if (i > 2) ret = 0;
+    for (i = 0; i < ARRAY_SIZE(dleq_generate_vectors); ++i) {
+        const struct dleq_generate_vector *vector = &dleq_generate_vectors[i];
+        const unsigned char *msg32 = vector->has_msg ? vector->message : NULL;
+        int ret;
 
-        secp256k1_scalar_set_b32(&a, a_bytes[i], NULL);
-        if (is_not_empty(B_bytes[i])) {
-            CHECK(secp256k1_ge_parse_ext33(&B, B_bytes[i]) == 1);
+        secp256k1_scalar_set_b32(&a, vector->scalar_a, NULL);
+        if (vector->point_B_is_infinity) {
+            secp256k1_ge_set_infinity(&B);
+        } else {
+            CHECK(secp256k1_ge_parse_ext33(&B, vector->point_B) == 1);
         }
 
         secp256k1_dleq_pair(&CTX->ecmult_gen_ctx, &A, &C, &a, &B);
 
-        if (is_not_empty(msg_bytes[i])) {
-            msg32 = msg_bytes[i];
-        }
-        CHECK(secp256k1_dleq_prove_internal(CTX, &e, &s, &a, &B, &A, &C, auxrand_bytes[i], msg32) == ret);
+        ret = secp256k1_dleq_prove_internal(CTX, &e, &s, &a, &B, &A, &C, vector->auxrand, msg32);
+        CHECK(ret == vector->expected_success);
 
         if (ret) {
             unsigned char proof[64];
             secp256k1_scalar_get_b32(proof, &e);
             secp256k1_scalar_get_b32(proof + 32, &s);
-            CHECK(memcmp(proof, proof_bytes[i], 64) == 0);
+            CHECK(memcmp(proof, vector->expected_proof, sizeof(proof)) == 0);
             CHECK(secp256k1_dleq_verify_internal(&CTX->hash_ctx, &e, &s, &A, &B, &C, msg32) == 1);
         }
     }
 
-    /* bip-0374/test_vectors_verify_proof.csv */
-    for (i = 0; i < 13; ++i) {
-        const unsigned char *msg32 = NULL;
+    for (i = 0; i < ARRAY_SIZE(dleq_verify_vectors); ++i) {
+        const struct dleq_verify_vector *vector = &dleq_verify_vectors[i];
+        const unsigned char *msg32 = vector->has_msg ? vector->message : NULL;
 
-        if (i > 2 && i < 6) {
-            /* Skip tests indices 3-5: proof generation failure cases (a=0, a=N, B=infinity).
-            * These contain placeholder data from test_vectors_generate_proof.csv that would
-            * fail to parse. Only indices 0-2 and 6-12 have valid test data. */
-            continue;
-        }
+        CHECK(secp256k1_ge_parse_ext33(&A, vector->point_A) == 1);
+        CHECK(secp256k1_ge_parse_ext33(&B, vector->point_B) == 1);
+        CHECK(secp256k1_ge_parse_ext33(&C, vector->point_C) == 1);
 
-        CHECK(secp256k1_ge_parse_ext33(&A, A_bytes[i]) == 1);
-        CHECK(secp256k1_ge_parse_ext33(&B, B_bytes[i]) == 1);
-        CHECK(secp256k1_ge_parse_ext33(&C, C_bytes[i]) == 1);
+        secp256k1_scalar_set_b32(&e, vector->proof, NULL);
+        secp256k1_scalar_set_b32(&s, vector->proof + 32, NULL);
 
-        secp256k1_scalar_set_b32(&e, proof_bytes[i], NULL);
-        secp256k1_scalar_set_b32(&s, proof_bytes[i] + 32, NULL);
-
-        if (is_not_empty(msg_bytes[i])) {
-            msg32 = msg_bytes[i];
-        }
-
-        CHECK(secp256k1_dleq_verify_internal(&CTX->hash_ctx, &e, &s, &A, &B, &C, msg32) == success[i]);
+        CHECK(secp256k1_dleq_verify_internal(&CTX->hash_ctx, &e, &s, &A, &B, &C, msg32) == vector->expected_success);
     }
 }
 
